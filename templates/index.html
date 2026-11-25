@@ -1,0 +1,1008 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>hf2llama.cpp — download and chat</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0c0e11;
+    --panel:#14171c;
+    --panel-2:#191d23;
+    --line:#242932;
+    --text:#e9e7e0;
+    --muted:#8b909a;
+    --source:#ff9d42;   /* hugging face amber */
+    --source-dim:#5c4426;
+    --dest:#67e0b8;     /* ollama mint */
+    --dest-dim:#22443a;
+    --error:#ff6b6b;
+    --mono: 'IBM Plex Mono', monospace;
+    --sans: 'IBM Plex Sans', sans-serif;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family:var(--sans);
+    min-height:100vh;
+  }
+  .wrap{
+    max-width:820px;
+    margin:0 auto;
+    padding:48px 24px 80px;
+  }
+  header{
+    margin-bottom:40px;
+  }
+  .eyebrow{
+    font-family:var(--mono);
+    font-size:12px;
+    letter-spacing:.14em;
+    text-transform:uppercase;
+    color:var(--muted);
+    margin:0 0 10px;
+  }
+  h1{
+    font-family:var(--mono);
+    font-size:28px;
+    font-weight:600;
+    margin:0 0 8px;
+    letter-spacing:-.01em;
+  }
+  h1 span.hf{color:var(--source);}
+  h1 span.arrow{color:var(--muted); font-weight:400;}
+  h1 span.ol{color:var(--dest);}
+  p.sub{
+    color:var(--muted);
+    font-size:14px;
+    margin:0;
+    max-width:520px;
+    line-height:1.5;
+  }
+  .tabs{
+    display:flex;
+    gap:6px;
+    margin:28px 0 24px;
+    border-bottom:1px solid var(--line);
+  }
+  .tab{
+    border:0;
+    border-bottom:2px solid transparent;
+    border-radius:0;
+    background:transparent;
+    color:var(--muted);
+    padding:11px 16px;
+  }
+  .tab.active{ color:var(--dest); border-bottom-color:var(--dest); }
+  .tab-panel{ display:none; }
+  .tab-panel.active{ display:block; }
+
+  /* Signature pipeline element */
+  .pipeline{
+    display:flex;
+    align-items:center;
+    gap:0;
+    margin:32px 0 40px;
+    user-select:none;
+  }
+  .node{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:8px;
+    font-family:var(--mono);
+    font-size:11px;
+    text-transform:uppercase;
+    letter-spacing:.08em;
+    color:var(--muted);
+    width:96px;
+    text-align:center;
+  }
+  .node .dot{
+    width:14px;height:14px;border-radius:50%;
+    background:var(--panel-2);
+    border:2px solid var(--line);
+    transition:all .3s ease;
+  }
+  .node.source .dot{border-color:var(--source);}
+  .node.dest .dot{border-color:var(--dest);}
+  .node.active .dot{background:currentColor; box-shadow:0 0 12px currentColor;}
+  .node.source.active .dot{color:var(--source);}
+  .node.dest.active .dot{color:var(--dest);}
+
+  .pipe{
+    flex:1;
+    height:2px;
+    background:var(--line);
+    position:relative;
+    overflow:visible;
+    display:flex;
+    justify-content:space-around;
+  }
+  .pipe .stage{
+    position:relative;
+    top:-9px;
+    width:18px;height:18px;
+    border-radius:50%;
+    background:var(--panel);
+    border:2px solid var(--line);
+    font-family:var(--mono);
+    font-size:9px;
+    display:flex;align-items:center;justify-content:center;
+    color:var(--muted);
+    transition:all .3s ease;
+  }
+  .pipe .stage.lit{
+    border-color:var(--source);
+    color:var(--source);
+    box-shadow:0 0 10px rgba(255,157,66,.5);
+  }
+  .pipe .stage.lit.dest-side{
+    border-color:var(--dest);
+    color:var(--dest);
+    box-shadow:0 0 10px rgba(103,224,184,.5);
+  }
+  .pipe .fill{
+    position:absolute;
+    top:0; left:0; height:100%;
+    width:0%;
+    background:linear-gradient(90deg, var(--source), var(--dest));
+    transition:width .5s ease;
+  }
+
+  form{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:24px;
+    display:flex;
+    flex-direction:column;
+    gap:18px;
+  }
+  .field label{
+    display:block;
+    font-family:var(--mono);
+    font-size:11px;
+    text-transform:uppercase;
+    letter-spacing:.08em;
+    color:var(--muted);
+    margin-bottom:6px;
+  }
+  .field input, .field select, .field textarea{
+    width:100%;
+    background:var(--panel-2);
+    border:1px solid var(--line);
+    color:var(--text);
+    font-family:var(--mono);
+    font-size:13px;
+    padding:10px 12px;
+    border-radius:6px;
+    outline:none;
+    transition:border-color .15s ease;
+  }
+  .field input:focus, .field select:focus, .field textarea:focus{
+    border-color:var(--dest);
+  }
+  .row{ display:flex; gap:14px; }
+  .row .field{ flex:1; }
+  .hint{ font-size:12px; color:var(--muted); margin-top:6px; }
+  .hint.error{ color:var(--error); }
+
+  button{
+    font-family:var(--mono);
+    font-size:13px;
+    font-weight:600;
+    text-transform:uppercase;
+    letter-spacing:.06em;
+    padding:12px 18px;
+    border-radius:6px;
+    border:1px solid var(--line);
+    background:var(--panel-2);
+    color:var(--text);
+    cursor:pointer;
+    transition:all .15s ease;
+  }
+  button:hover{ border-color:var(--dest); color:var(--dest); }
+  button:disabled{ opacity:.4; cursor:not-allowed; }
+  button.primary{
+    background:var(--dest);
+    border-color:var(--dest);
+    color:#0c0e11;
+  }
+  button.primary:hover{ opacity:.9; color:#0c0e11; }
+  button.ghost{
+    background:transparent;
+  }
+
+  #file-list{
+    display:flex;
+    flex-direction:column;
+    gap:6px;
+    max-height:220px;
+    overflow-y:auto;
+    border:1px solid var(--line);
+    border-radius:6px;
+    padding:6px;
+    background:var(--panel-2);
+  }
+  #file-list label{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    font-family:var(--mono);
+    font-size:12px;
+    color:var(--text);
+    padding:8px 10px;
+    border-radius:4px;
+    cursor:pointer;
+  }
+  #file-list label:hover{ background:var(--panel); }
+  #file-list label input{ margin-right:10px; width:auto; }
+  #file-list .size{ color:var(--muted); }
+
+  #dl-progress{
+    margin-top:18px;
+    display:none;
+  }
+  #dl-progress.visible{ display:block; }
+  #dl-progress .meta{
+    display:flex;
+    justify-content:space-between;
+    font-family:var(--mono);
+    font-size:12px;
+    color:var(--muted);
+    margin-bottom:6px;
+  }
+  #dl-progress .meta .pct{ color:var(--source); font-weight:600; }
+  #dl-progress .track{
+    height:8px;
+    border-radius:4px;
+    background:var(--panel-2);
+    border:1px solid var(--line);
+    overflow:hidden;
+  }
+  #dl-progress .track .bar{
+    height:100%;
+    width:0%;
+    background:linear-gradient(90deg, var(--source), var(--dest));
+    transition:width .25s ease;
+  }
+
+  #log-panel{
+    margin-top:20px;
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:18px 20px;
+    display:none;
+  }
+  #log-panel.visible{ display:block; }
+  #log-panel h3{
+    font-family:var(--mono);
+    font-size:12px;
+    text-transform:uppercase;
+    letter-spacing:.08em;
+    color:var(--muted);
+    margin:0 0 12px;
+  }
+  #log-lines{
+    font-family:var(--mono);
+    font-size:12px;
+    line-height:1.7;
+    color:var(--text);
+    max-height:280px;
+    overflow-y:auto;
+    white-space:pre-wrap;
+    word-break:break-word;
+  }
+  #log-lines .line{ color:var(--muted); }
+  #log-lines .line.err{ color:var(--error); }
+  #result{
+    margin-top:14px;
+    font-family:var(--mono);
+    font-size:13px;
+  }
+  #result .ok{ color:var(--dest); }
+  #result .bad{ color:var(--error); }
+  #result code{
+    background:var(--panel-2);
+    padding:2px 6px;
+    border-radius:4px;
+  }
+  .chat-shell{
+    height:600px;
+    min-height:420px;
+    display:flex;
+    flex-direction:column;
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:10px;
+    overflow:hidden;
+  }
+  .chat-toolbar{
+    display:flex;
+    align-items:end;
+    gap:10px;
+    padding:16px;
+    border-bottom:1px solid var(--line);
+  }
+  .chat-toolbar .field{ flex:1; }
+  .chat-toolbar select{
+    width:100%;
+    background:var(--panel-2);
+    border:1px solid var(--line);
+    color:var(--text);
+    font-family:var(--mono);
+    padding:10px 12px;
+    border-radius:6px;
+  }
+  #chat-messages{
+    flex:1;
+    overflow-y:auto;
+    display:flex;
+    flex-direction:column;
+    gap:14px;
+    padding:22px;
+  }
+  .chat-empty{ margin:auto; text-align:center; color:var(--muted); line-height:1.6; }
+  .message{ max-width:84%; }
+  .message.user{ align-self:flex-end; }
+  .message.assistant{ align-self:flex-start; }
+  .message .role{
+    margin-bottom:5px;
+    color:var(--muted);
+    font:10px var(--mono);
+    text-transform:uppercase;
+    letter-spacing:.08em;
+  }
+  .message.user .role{ text-align:right; }
+  .message .bubble{
+    padding:11px 14px;
+    border:1px solid var(--line);
+    border-radius:8px;
+    background:var(--panel-2);
+    font-size:14px;
+    line-height:1.55;
+    white-space:pre-wrap;
+    word-break:break-word;
+  }
+  .message.user .bubble{ border-color:var(--dest-dim); background:var(--dest-dim); }
+  .message.pending .bubble{ color:var(--muted); }
+  .chat-composer{
+    display:flex;
+    flex-direction:row;
+    gap:10px;
+    padding:16px;
+    background:var(--panel);
+    border:0;
+    border-top:1px solid var(--line);
+    border-radius:0;
+  }
+  #chat-input{
+    flex:1;
+    resize:none;
+    min-height:46px;
+    max-height:140px;
+    background:var(--panel-2);
+    border:1px solid var(--line);
+    color:var(--text);
+    font:13px var(--mono);
+    padding:11px 12px;
+    border-radius:6px;
+  }
+  #chat-error{ padding:0 16px 12px; color:var(--error); font-size:12px; }
+  .ok{ color:var(--dest); }
+  .bad{ color:var(--error); }
+  .create-log{
+    margin-top:16px;
+    padding:18px 20px;
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:10px;
+    display:none;
+  }
+  .create-log.visible{ display:block; }
+  .create-log h3{
+    margin:0 0 12px;
+    color:var(--muted);
+    font:12px var(--mono);
+    text-transform:uppercase;
+    letter-spacing:.08em;
+  }
+  #ollama-log-lines{
+    max-height:280px;
+    overflow-y:auto;
+    white-space:pre-wrap;
+    word-break:break-word;
+    color:var(--muted);
+    font:12px/1.7 var(--mono);
+  }
+  @media (max-width:600px){
+    .wrap{ padding:28px 14px 50px; }
+    .row, .chat-toolbar{ flex-direction:column; align-items:stretch; }
+    .chat-shell{ height:70vh; }
+    .message{ max-width:94%; }
+  }
+  footer{
+    margin-top:36px;
+    color:var(--muted);
+    font-size:12px;
+    font-family:var(--mono);
+  }
+  footer a{ color:var(--dest); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <p class="eyebrow">hf2ollama · direct local GGUF inference</p>
+    <h1><span class="hf">Hugging Face</span> <span class="arrow">→</span> <span class="ol">llama.cpp</span></h1>
+    <p class="sub">Download a GGUF model from the Hub and chat with it directly through llama-cpp-python. Ollama is not required.</p>
+  </header>
+
+  <nav class="tabs" aria-label="Main sections">
+    <button class="tab active" type="button" data-tab="download">Download models</button>
+    <button class="tab" type="button" data-tab="chat">Chat</button>
+    <button class="tab" type="button" data-tab="ollama">Create Ollama model</button>
+  </nav>
+
+  <section class="tab-panel active" id="download-panel">
+
+  <div class="pipeline" id="pipeline">
+    <div class="node source" id="node-source">
+      <div class="dot"></div>
+      download
+    </div>
+    <div class="pipe" id="pipe">
+      <div class="fill" id="pipe-fill"></div>
+      <div class="stage" id="stage-download">↓</div>
+      <div class="stage" id="stage-modelfile">✓</div>
+      <div class="stage" id="stage-create">●</div>
+    </div>
+    <div class="node dest" id="node-dest">
+      <div class="dot"></div>
+      ready
+    </div>
+  </div>
+
+  <form id="lookup-form">
+    <div class="field">
+      <label for="repo_id">Hugging Face repo id</label>
+      <input type="text" id="repo_id" name="repo_id" placeholder="TheBloke/Mistral-7B-Instruct-v0.2-GGUF" required>
+      <div class="hint">Needs to contain at least one <code>.gguf</code> file that llama.cpp can load.</div>
+    </div>
+    <button type="submit" id="lookup-btn">List GGUF files</button>
+  </form>
+
+  <form id="pull-form" style="display:none; margin-top:16px;">
+    <div class="field">
+      <label>Choose a file</label>
+      <div id="file-list"></div>
+    </div>
+    <button type="submit" class="primary" id="pull-btn">Download GGUF</button>
+  </form>
+
+  <div id="dl-progress">
+    <div class="meta">
+      <span id="dl-label">Downloading…</span>
+      <span class="pct" id="dl-pct">0%</span>
+    </div>
+    <div class="track"><div class="bar" id="dl-bar"></div></div>
+  </div>
+
+  <div id="log-panel">
+    <h3>Job log</h3>
+    <div id="log-lines"></div>
+    <div id="result"></div>
+  </div>
+  </section>
+
+  <section class="tab-panel" id="chat-panel">
+    <div class="chat-shell">
+      <div class="chat-toolbar">
+        <div class="field">
+          <label for="chat-model">Downloaded GGUF model</label>
+          <select id="chat-model"><option value="">Loading models...</option></select>
+        </div>
+        <button type="button" class="ghost" id="refresh-models">Refresh</button>
+        <button type="button" class="ghost" id="clear-chat">Clear chat</button>
+      </div>
+      <div id="chat-messages"></div>
+      <div id="chat-error" role="alert"></div>
+      <form class="chat-composer" id="chat-form">
+        <textarea id="chat-input" rows="1" placeholder="Message the selected model..." required></textarea>
+        <button type="submit" class="primary" id="send-chat">Send</button>
+      </form>
+    </div>
+  </section>
+
+  <section class="tab-panel" id="ollama-panel">
+    <form id="ollama-form">
+      <div class="field">
+        <label for="ollama-gguf">Downloaded GGUF file</label>
+        <select id="ollama-gguf" required><option value="">Loading models...</option></select>
+        <div class="hint">The app generates and removes a temporary Modelfile automatically.</div>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label for="ollama-name">Ollama model name</label>
+          <input id="ollama-name" type="text" placeholder="my-local-model" required>
+        </div>
+        <div class="field">
+          <label for="ollama-temperature">Temperature (optional)</label>
+          <input id="ollama-temperature" type="number" min="0" max="2" step="0.1" placeholder="0.7">
+        </div>
+      </div>
+      <div class="field">
+        <label for="ollama-system">System instructions (optional)</label>
+        <textarea id="ollama-system" rows="6" placeholder="You are a concise and helpful assistant."></textarea>
+        <div class="hint">These instructions become the <code>SYSTEM</code> section of the generated Modelfile.</div>
+      </div>
+      <button class="primary" type="submit" id="ollama-create-btn">Create in Ollama</button>
+    </form>
+    <div class="create-log" id="ollama-log-panel">
+      <h3>Ollama creation log</h3>
+      <div id="ollama-log-lines"></div>
+      <div id="ollama-result"></div>
+    </div>
+  </section>
+
+  <footer>
+    Models run locally through <code>llama-cpp-python</code>. Files download into <code>./models</code> next to this app.
+  </footer>
+</div>
+
+<script>
+const lookupForm = document.getElementById('lookup-form');
+const pullForm = document.getElementById('pull-form');
+const fileList = document.getElementById('file-list');
+const lookupBtn = document.getElementById('lookup-btn');
+const pullBtn = document.getElementById('pull-btn');
+const logPanel = document.getElementById('log-panel');
+const logLines = document.getElementById('log-lines');
+const resultBox = document.getElementById('result');
+const dlProgress = document.getElementById('dl-progress');
+const dlBar = document.getElementById('dl-bar');
+const dlPct = document.getElementById('dl-pct');
+const dlLabel = document.getElementById('dl-label');
+
+function formatBytes(bytes){
+  if (bytes == null) return '';
+  const mb = bytes / (1024 * 1024);
+  if (mb > 1024) return (mb / 1024).toFixed(2) + ' GB';
+  return mb.toFixed(1) + ' MB';
+}
+
+const stageEls = {
+  download: document.getElementById('stage-download'),
+  modelfile: document.getElementById('stage-modelfile'),
+  create: document.getElementById('stage-create'),
+};
+const pipeFill = document.getElementById('pipe-fill');
+const nodeSource = document.getElementById('node-source');
+const nodeDest = document.getElementById('node-dest');
+
+let currentRepo = '';
+
+lookupForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const repo_id = document.getElementById('repo_id').value.trim();
+  if (!repo_id) return;
+  currentRepo = repo_id;
+  lookupBtn.disabled = true;
+  lookupBtn.textContent = 'Looking...';
+  fileList.innerHTML = '';
+  pullForm.style.display = 'none';
+
+  try {
+    const res = await fetch('/api/list-files', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({repo_id})
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      fileList.innerHTML = `<div class="hint error">${data.error || 'Lookup failed.'}</div>`;
+      pullForm.style.display = 'block';
+      pullForm.querySelector('#file-list').innerHTML = fileList.innerHTML;
+      return;
+    }
+    if (!data.has_gguf) {
+      fileList.innerHTML = '<div class="hint error">No .gguf files found in this repo. Try a repo with pre-quantized GGUF weights (e.g. one with "-GGUF" in the name).</div>';
+      pullForm.style.display = 'none';
+      return;
+    }
+    data.gguf_files.forEach((f, i) => {
+      const id = `f${i}`;
+      const label = document.createElement('label');
+      label.innerHTML = `
+        <span><input type="radio" name="gguf_file" value="${f.filename}" id="${id}" ${i===0?'checked':''}> ${f.filename}</span>
+        <span class="size">${f.size_mb ? f.size_mb + ' MB' : ''}</span>
+      `;
+      fileList.appendChild(label);
+    });
+    pullForm.style.display = 'flex';
+    pullForm.style.flexDirection = 'column';
+  } catch (err) {
+    fileList.innerHTML = `<div class="hint error">${err}</div>`;
+  } finally {
+    lookupBtn.disabled = false;
+    lookupBtn.textContent = 'List GGUF files';
+  }
+});
+
+pullForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const selected = pullForm.querySelector('input[name="gguf_file"]:checked');
+  if (!selected) return;
+  const filename = selected.value;
+  pullBtn.disabled = true;
+  pullBtn.textContent = 'Downloading...';
+  logPanel.classList.add('visible');
+  logLines.innerHTML = '';
+  resultBox.innerHTML = '';
+  resetPipeline();
+  nodeSource.classList.add('active');
+  seenLines = 0;
+  dlProgress.classList.add('visible');
+  dlBar.style.width = '0%';
+  dlPct.textContent = '0%';
+  dlLabel.textContent = 'Downloading…';
+
+  try {
+    const res = await fetch('/api/pull', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({repo_id: currentRepo, filename})
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      resultBox.innerHTML = `<span class="bad">${data.error}</span>`;
+      pullBtn.disabled = false;
+      pullBtn.textContent = 'Download GGUF';
+      return;
+    }
+    pollStatus(data.job_id);
+  } catch (err) {
+    resultBox.innerHTML = `<span class="bad">${err}</span>`;
+    pullBtn.disabled = false;
+    pullBtn.textContent = 'Download GGUF';
+  }
+});
+
+function resetPipeline(){
+  pipeFill.style.width = '0%';
+  Object.values(stageEls).forEach(el => el.classList.remove('lit', 'dest-side'));
+  nodeSource.classList.remove('active');
+  nodeDest.classList.remove('active');
+}
+
+function updatePipeline(stage, progress){
+  pipeFill.style.width = (progress || 0) + '%';
+  if (['downloading','checking','queued'].includes(stage)) {
+    nodeSource.classList.add('active');
+  }
+  if (stage === 'downloading' || progress >= 15) stageEls.download.classList.add('lit');
+  if (stage === 'modelfile' || progress >= 70) stageEls.modelfile.classList.add('lit');
+  if (stage === 'creating' || progress >= 80) { stageEls.create.classList.add('lit'); stageEls.create.classList.add('dest-side'); nodeDest.classList.add('active'); }
+  if (stage === 'done' || progress >= 100) {
+    stageEls.download.classList.add('dest-side');
+    stageEls.modelfile.classList.add('dest-side');
+    nodeDest.classList.add('active');
+  }
+}
+
+let seenLines = 0;
+function pollStatus(jobId){
+  const interval = setInterval(async () => {
+    const res = await fetch(`/api/status/${jobId}`);
+    const job = await res.json();
+    if (job.error && !job.log) {
+      clearInterval(interval);
+      resultBox.innerHTML = `<span class="bad">${job.error}</span>`;
+      pullBtn.disabled = false;
+      pullBtn.textContent = 'Download GGUF';
+      return;
+    }
+    updatePipeline(job.stage, job.progress);
+
+    if (job.stage === 'downloading' || (job.bytes_downloaded && job.stage !== 'done')) {
+      const pct = job.download_pct;
+      dlBar.style.width = (pct != null ? pct : 0) + '%';
+      dlPct.textContent = (pct != null ? pct.toFixed(1) + '%' : '…');
+      const downloadedStr = formatBytes(job.bytes_downloaded);
+      const totalStr = formatBytes(job.bytes_total);
+      dlLabel.textContent = totalStr
+        ? `Downloading… ${downloadedStr} / ${totalStr}`
+        : `Downloading… ${downloadedStr}`;
+    }
+    if (job.stage && job.stage !== 'downloading' && job.stage !== 'checking' && job.stage !== 'queued') {
+      dlBar.style.width = '100%';
+      dlPct.textContent = '100%';
+      dlLabel.textContent = 'Download complete';
+    }
+
+    for (let i = seenLines; i < job.log.length; i++) {
+      const div = document.createElement('div');
+      div.className = 'line' + (job.log[i].startsWith('ERROR') ? ' err' : '');
+      div.textContent = job.log[i];
+      logLines.appendChild(div);
+    }
+    seenLines = job.log.length;
+    logLines.scrollTop = logLines.scrollHeight;
+
+    if (job.status === 'success') {
+      clearInterval(interval);
+      resultBox.innerHTML = '<span class="ok">Done.</span> The model is ready in the Chat tab.';
+      modelsLoaded = false;
+      pullBtn.disabled = false;
+      pullBtn.textContent = 'Download GGUF';
+    } else if (job.status === 'error') {
+      clearInterval(interval);
+      resultBox.innerHTML = `<span class="bad">${job.error}</span>`;
+      pullBtn.disabled = false;
+      pullBtn.textContent = 'Download GGUF';
+    }
+  }, 900);
+}
+
+// Tabs and direct local GGUF chat
+const tabs = document.querySelectorAll('.tab');
+const chatModel = document.getElementById('chat-model');
+const chatMessages = document.getElementById('chat-messages');
+const chatForm = document.getElementById('chat-form');
+const chatInput = document.getElementById('chat-input');
+const sendChat = document.getElementById('send-chat');
+const chatError = document.getElementById('chat-error');
+const ollamaGguf = document.getElementById('ollama-gguf');
+const ollamaName = document.getElementById('ollama-name');
+const ollamaForm = document.getElementById('ollama-form');
+const ollamaCreateBtn = document.getElementById('ollama-create-btn');
+const ollamaLogPanel = document.getElementById('ollama-log-panel');
+const ollamaLogLines = document.getElementById('ollama-log-lines');
+const ollamaResult = document.getElementById('ollama-result');
+const histories = {};
+let modelsLoaded = false;
+
+function activateTab(tabName){
+  const tab = document.querySelector(`.tab[data-tab="${tabName}"]`) || document.querySelector('.tab[data-tab="download"]');
+  tabs.forEach(item => item.classList.toggle('active', item === tab));
+  document.querySelectorAll('.tab-panel').forEach(panel => panel.classList.remove('active'));
+  document.getElementById(`${tab.dataset.tab}-panel`).classList.add('active');
+  localStorage.setItem('hf2ollama-active-tab', tab.dataset.tab);
+  if (tab.dataset.tab === 'chat' || tab.dataset.tab === 'ollama') {
+    loadModels();
+    if (tab.dataset.tab === 'chat') setTimeout(() => chatInput.focus(), 0);
+  }
+}
+
+tabs.forEach(tab => tab.addEventListener('click', () => activateTab(tab.dataset.tab)));
+
+function chatHistory(){
+  const name = chatModel.value;
+  if (!histories[name]) histories[name] = [];
+  return histories[name];
+}
+
+function renderChat(){
+  chatMessages.innerHTML = '';
+  const history = chatModel.value ? chatHistory() : [];
+  if (!history.length) {
+    const empty = document.createElement('div');
+    empty.className = 'chat-empty';
+    empty.textContent = chatModel.value
+      ? `Start a conversation with ${chatModel.value}.`
+      : 'Choose a downloaded GGUF model to start chatting.';
+    chatMessages.appendChild(empty);
+    return;
+  }
+  history.forEach(message => addMessageElement(message.role, message.content));
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+function addMessageElement(role, content, pending=false){
+  const wrapper = document.createElement('div');
+  wrapper.className = `message ${role}${pending ? ' pending' : ''}`;
+  const label = document.createElement('div');
+  label.className = 'role';
+  label.textContent = role === 'user' ? 'You' : chatModel.value || 'Assistant';
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble';
+  bubble.textContent = content;
+  wrapper.append(label, bubble);
+  chatMessages.appendChild(wrapper);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+  return wrapper;
+}
+
+async function loadModels(force=false){
+  if (modelsLoaded && !force) return;
+  const previous = chatModel.value;
+  const previousOllama = ollamaGguf.value;
+  chatModel.disabled = true;
+  ollamaGguf.disabled = true;
+  chatError.textContent = '';
+  chatModel.innerHTML = '<option value="">Loading models...</option>';
+  ollamaGguf.innerHTML = '<option value="">Loading models...</option>';
+  try {
+    const response = await fetch('/api/models');
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Could not load models.');
+    chatModel.innerHTML = '';
+    ollamaGguf.innerHTML = '';
+    if (!data.models.length) {
+      chatModel.innerHTML = '<option value="">No downloaded GGUF models found</option>';
+      ollamaGguf.innerHTML = '<option value="">No downloaded GGUF models found</option>';
+    } else {
+      data.models.forEach(model => {
+        const text = model.size ? `${model.name} (${formatBytes(model.size)})` : model.name;
+        [chatModel, ollamaGguf].forEach(select => {
+          const option = document.createElement('option');
+          option.value = model.name;
+          option.textContent = text;
+          select.appendChild(option);
+        });
+      });
+      if (data.models.some(model => model.name === previous)) chatModel.value = previous;
+      if (data.models.some(model => model.name === previousOllama)) ollamaGguf.value = previousOllama;
+      suggestOllamaName();
+    }
+    modelsLoaded = true;
+  } catch (error) {
+    chatModel.innerHTML = '<option value="">Models unavailable</option>';
+    ollamaGguf.innerHTML = '<option value="">Models unavailable</option>';
+    chatError.textContent = error.message;
+    modelsLoaded = false;
+  } finally {
+    chatModel.disabled = false;
+    ollamaGguf.disabled = false;
+    renderChat();
+  }
+}
+
+chatModel.addEventListener('change', () => {
+  chatError.textContent = '';
+  renderChat();
+});
+document.getElementById('refresh-models').addEventListener('click', () => loadModels(true));
+document.getElementById('clear-chat').addEventListener('click', () => {
+  if (chatModel.value) histories[chatModel.value] = [];
+  chatError.textContent = '';
+  renderChat();
+  chatInput.focus();
+});
+
+chatInput.addEventListener('keydown', event => {
+  if (event.key === 'Enter' && !event.shiftKey) {
+    event.preventDefault();
+    chatForm.requestSubmit();
+  }
+});
+
+chatForm.addEventListener('submit', async event => {
+  event.preventDefault();
+  const model = chatModel.value;
+  const content = chatInput.value.trim();
+  if (!model || !content || sendChat.disabled) return;
+
+  const history = chatHistory();
+  history.push({role: 'user', content});
+  chatInput.value = '';
+  chatError.textContent = '';
+  renderChat();
+  const pending = addMessageElement('assistant', 'Thinking...', true);
+  sendChat.disabled = true;
+  chatModel.disabled = true;
+
+  try {
+    const response = await fetch('/api/chat', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({model, messages: history})
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Chat request failed.');
+    history.push(data.message);
+  } catch (error) {
+    chatError.textContent = error.message;
+  } finally {
+    pending.remove();
+    sendChat.disabled = false;
+    chatModel.disabled = false;
+    renderChat();
+    chatInput.focus();
+  }
+});
+
+function suggestOllamaName(){
+  if (!ollamaGguf.value || ollamaName.value.trim()) return;
+  const filename = ollamaGguf.value.split('/').pop().replace(/\.gguf$/i, '');
+  ollamaName.value = filename.toLowerCase().replace(/[^a-z0-9._:-]+/g, '-').replace(/^-+|-+$/g, '');
+}
+
+ollamaGguf.addEventListener('change', () => {
+  ollamaName.value = '';
+  suggestOllamaName();
+});
+
+ollamaForm.addEventListener('submit', async event => {
+  event.preventDefault();
+  const gguf = ollamaGguf.value;
+  const model_name = ollamaName.value.trim();
+  if (!gguf || !model_name || ollamaCreateBtn.disabled) return;
+
+  ollamaCreateBtn.disabled = true;
+  ollamaCreateBtn.textContent = 'Creating...';
+  ollamaLogPanel.classList.add('visible');
+  ollamaLogLines.innerHTML = '';
+  ollamaResult.innerHTML = '';
+
+  try {
+    const response = await fetch('/api/ollama/create', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        gguf,
+        model_name,
+        system_prompt: document.getElementById('ollama-system').value.trim(),
+        temperature: document.getElementById('ollama-temperature').value
+      })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Could not start Ollama creation.');
+    pollOllamaCreate(data.job_id);
+  } catch (error) {
+    ollamaResult.innerHTML = `<span class="bad"></span>`;
+    ollamaResult.querySelector('span').textContent = error.message;
+    ollamaCreateBtn.disabled = false;
+    ollamaCreateBtn.textContent = 'Create in Ollama';
+  }
+});
+
+function pollOllamaCreate(jobId){
+  let seen = 0;
+  const interval = setInterval(async () => {
+    try {
+      const response = await fetch(`/api/status/${jobId}`);
+      const job = await response.json();
+      if (!response.ok) throw new Error(job.error || 'Could not read job status.');
+      for (let index = seen; index < job.log.length; index++) {
+        const line = document.createElement('div');
+        line.textContent = job.log[index];
+        if (job.log[index].startsWith('ERROR')) line.style.color = 'var(--error)';
+        ollamaLogLines.appendChild(line);
+      }
+      seen = job.log.length;
+      ollamaLogLines.scrollTop = ollamaLogLines.scrollHeight;
+
+      if (job.status === 'success') {
+        clearInterval(interval);
+        ollamaResult.innerHTML = '<span class="ok"></span>';
+        ollamaResult.querySelector('span').textContent = `Created successfully. Run: ollama run ${job.model_name}`;
+        ollamaCreateBtn.disabled = false;
+        ollamaCreateBtn.textContent = 'Create in Ollama';
+      } else if (job.status === 'error') {
+        clearInterval(interval);
+        ollamaResult.innerHTML = '<span class="bad"></span>';
+        ollamaResult.querySelector('span').textContent = job.error;
+        ollamaCreateBtn.disabled = false;
+        ollamaCreateBtn.textContent = 'Create in Ollama';
+      }
+    } catch (error) {
+      clearInterval(interval);
+      ollamaResult.innerHTML = '<span class="bad"></span>';
+      ollamaResult.querySelector('span').textContent = error.message;
+      ollamaCreateBtn.disabled = false;
+      ollamaCreateBtn.textContent = 'Create in Ollama';
+    }
+  }, 900);
+}
+
+activateTab(localStorage.getItem('hf2ollama-active-tab') || 'download');
+</script>
+</body>
+</html>
